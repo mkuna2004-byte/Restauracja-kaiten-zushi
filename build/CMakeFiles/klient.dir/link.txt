@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/klient.dir/klient.cpp.o -o klient  -lrt -lpthread 

@@ -5,6 +5,7 @@ int main() {
 
     // pobranie klucza i podpiêcie siê pod pamiêæ
     key_t key = ftok("main_restaurant", 'R');
+    //key_t key = 123456;
     if (key == -1) { perror("szef ftok"); exit(1); }
     int shmid = shmget(key, sizeof(SharedMemory), 0600);
 

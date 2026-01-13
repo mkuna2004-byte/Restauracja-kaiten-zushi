@@ -6,8 +6,9 @@ int main(int argc, char* argv[]) {
 
     std::cout << "[KLIENT] Grupa " << getpid() << " (osób: " << group_size << ") podchodzi do wejœcia..." << std::endl;
 
-    key_t key = ftok("main.cpp", 'R');
-    int shmid = shmget(key, sizeof(SharedMemory), 0600);
+    key_t key = ftok("main_restaurant", 'R');
+    //key_t key = 123456;
+    int shmid = shmget(key, sizeof(SharedMemory), 0666);
     if (shmid == -1) { perror("Klient shmget"); return 1; }
 
     SharedMemory* shm = (SharedMemory*)shmat(shmid, NULL, 0);
