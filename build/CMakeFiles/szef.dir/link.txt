@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/szef.dir/szef.cpp.o -o szef  -lrt -lpthread 

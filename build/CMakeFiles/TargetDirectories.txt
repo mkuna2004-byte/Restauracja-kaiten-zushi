@@ -1,5 +1,0 @@
-/mnt/d/Projekt/Restauracja-kaiten-zushi/build/CMakeFiles/main_restaurant.dir
-/mnt/d/Projekt/Restauracja-kaiten-zushi/build/CMakeFiles/szef.dir
-/mnt/d/Projekt/Restauracja-kaiten-zushi/build/CMakeFiles/klient.dir
-/mnt/d/Projekt/Restauracja-kaiten-zushi/build/CMakeFiles/edit_cache.dir
-/mnt/d/Projekt/Restauracja-kaiten-zushi/build/CMakeFiles/rebuild_cache.dir

@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/main_restaurant.dir/main.cpp.o -o main_restaurant  -lrt -lpthread 
