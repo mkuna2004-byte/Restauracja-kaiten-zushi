@@ -8,10 +8,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(main_restaurant main.cpp common.h)
 
 # 2. OSOBNE PROGRAMY (potrzebne do wywo³ania przez exec)
-add_executable(szef szef.cpp common.h)
+add_executable(obsluga obsluga.cpp common.h)
 add_executable(klient klient.cpp common.h)
-
+add_executable(kucharz kucharz.cpp common.h)
 # Wszystkie musz¹ byæ po³¹czone z bibliotekami systemowymi Linux
 target_link_libraries(main_restaurant rt pthread)
-target_link_libraries(szef rt pthread)
+target_link_libraries(obsluga rt pthread)
 target_link_libraries(klient rt pthread)
+target_link_libraries(kucharz rt pthread)
