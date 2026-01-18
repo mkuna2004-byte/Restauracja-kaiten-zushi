@@ -21,7 +21,7 @@ int main() {
     // pobranie klucza i podpiêcie siê pod pamiêæ
     key_t key = ftok("main_restaurant", 'R');
     int shmid = shmget(key, sizeof(SharedMemory), 0666);
-    int semid = semget(key, 3, 0666);
+    int semid = semget(key, 4, 0666);
 
     if (shmid == -1 || semid == -1) { perror("Kierownik: b³¹d IPC"); exit(1); }
 
@@ -31,23 +31,32 @@ int main() {
     signal(SIGUSR2, handle_speed);
 
     while (shm_ptr->isOpen) {
+
+        sem_op(semid, SEM_KITCHEN_FULL, -1);
         // czekaj na wolne miejsce na tasmie
         sem_op(semid, SEM_EMPTY, -1);
         sem_op(semid, SEM_MUTEX, -1);
 
-        // znajdz pierwszy wolny slot na tasmie
-        for (int i = 0; i < MAX_BELT; i++) {
-            if (!shm_ptr->belt[i].is_active) {
-                int type = rand() % 3;
-                int prices[] = { 10, 15, 20 };
-                shm_ptr->belt[i].type = type;
-                shm_ptr->belt[i].price = prices[type];
-                shm_ptr->belt[i].is_active = true;
-                shm_ptr->belt[i].target_id = -1;
-                std::cout << "[OBSLUGA] Klade danie na tasmie (slot " << i << ")" << std::endl;
-                break;
+        for (int i = MAX_BELT - 1; i > 0; i--) {
+            if (!shm_ptr->belt[i].is_active && shm_ptr->belt[i - 1].is_active) {
+                shm_ptr->belt[i] = shm_ptr->belt[i - 1];
+                shm_ptr->belt[i - 1].is_active = false;
             }
         }
+
+        Plate taken_plate = shm_ptr->kitchen_prep[--shm_ptr->plates_in_kitchen];
+
+        static int current_pos = 0;
+        while (shm_ptr->belt[current_pos].is_active) {
+            current_pos = (current_pos + 1) % MAX_BELT;
+        }
+        // znajdz pierwszy wolny slot na tasmie
+        shm_ptr->belt[current_pos] = taken_plate;
+        shm_ptr->belt[current_pos].is_active = true;
+        std::cout << "[OBSLUGA] Klade danie na tasmie (slot " << current_pos << ")" << std::endl;
+        
+        current_pos = (current_pos + 1) % MAX_BELT;
+
         sem_op(semid, SEM_MUTEX, 1);
         sem_op(semid, SEM_FULL, 1); // powiadom klienta
 

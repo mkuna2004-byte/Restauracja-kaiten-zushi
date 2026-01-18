@@ -14,14 +14,29 @@ void cleanup(int sig) {
     std::cout << "\n[KIEROWNIK] Zamykanie restauracji (Sygnal " << sig << ")." << std::endl;
     kill(0, SIGQUIT);
 
+    int cooked_sum = 0;
+    int sold_sum = 0;
+
+    if (shm != nullptr) {
+        for (int i = 0; i < 4; i++) {
+            cooked_sum += shm->produced_count[i];
+            sold_sum += shm->sold_count[i];
+        }
+    }
+
     //RAPORT
     std::ofstream file("raport_restauracji.txt", std::ios::app);
     if (shm != nullptr && file.is_open()) {
         file << "--- RAPORT Z DNIA " << time(NULL) << " ---\n";
         file << "Zysk: " << shm->total_revenue << " PLN\n";
-        file << "Dania 10zl: Prod: " << shm->produced_count[0] << " Sprzed: " << shm->sold_count[0] << "\n";
-        file << "Dania 15zl: Prod: " << shm->produced_count[1] << " Sprzed: " << shm->sold_count[1] << "\n";
-        file << "Dania 20zl: Prod: " << shm->produced_count[2] << " Sprzed: " << shm->sold_count[2] << "\n";
+        //file << "Dania 10zl: Prod: " << shm->produced_count[0] << " Sprzed: " << shm->sold_count[0] << "\n";
+        //file << "Dania 15zl: Prod: " << shm->produced_count[1] << " Sprzed: " << shm->sold_count[1] << "\n";
+        //file << "Dania 20zl: Prod: " << shm->produced_count[2] << " Sprzed: " << shm->sold_count[2] << "\n";
+        for (int i = 0; i < 4; i++) {
+            file << "Typ " << i << " (3=Specjalne): Prod: " << shm->produced_count[i]
+                << " Sprzed: " << shm->sold_count[i] << "\n";
+        }
+        file << "Dania pozostale na tasmie: " << (cooked_sum - sold_sum) << "\n";
         file << "------------------------------------------\n";
         file.close();
         std::cout << "[KIEROWNIK] Raport zapisany do raport_restauracji.txt" << std::endl;
@@ -67,7 +82,7 @@ int main() {
     if (key == -1) { perror("main ftok"); exit(1); }
 
     global_shmid = shmget(key, sizeof(SharedMemory), IPC_CREAT | 0666);
-    global_semid = semget(key, 3, IPC_CREAT | 0666);
+    global_semid = semget(key, 4, IPC_CREAT | 0666);
 
     if (global_shmid == -1 || global_semid == -1) {
         perror("Blad tworzenia zasobow");
@@ -77,9 +92,7 @@ int main() {
     shm = (SharedMemory*)shmat(global_shmid, NULL, 0);
     if (shm == (void*)-1) { perror("shmat"); exit(1); }
 
-    // semafory
-    //int semid = semget(key, 3, IPC_CREAT | 0600);
-    //if (semid == -1) { perror("semget"); exit(1); }
+    memset(shm, 0, sizeof(SharedMemory));
 
     // inicjalizacja danych w pamieci
     shm->isOpen = true;
@@ -89,17 +102,21 @@ int main() {
         shm->tables[i].occupied_seats = 0;
         shm->tables[i].group_size = 0;
 
-        if (i < MAX_TABLES && i > 9) {
-            shm->tables[i].capacity = 4;
+        if (i < 4) {
+            shm->tables[i].capacity = 1;
+            shm->tables[i].is_counter = true;
         }
-        else if (i <= 9 && i > 6) {
-            shm->tables[i].capacity = 3;
-        }
-        else if (i <= 6 && i > 4) {
+        else if (i < 7) {
             shm->tables[i].capacity = 2;
+            shm->tables[i].is_counter = false;
+        }
+        else if (i < 10) {
+            shm->tables[i].capacity = 3;
+            shm->tables[i].is_counter = false;
         }
         else {
-            shm->tables[i].capacity = 1; // 4 lada i 1 1-osobowy
+            shm->tables[i].capacity = 4;
+            shm->tables[i].is_counter = false;
         }
     }
     shm->total_revenue = 0;
@@ -113,7 +130,7 @@ int main() {
     semctl(global_semid, SEM_MUTEX, SETVAL, 1);     // mutex = 1 (wolne)
     semctl(global_semid, SEM_EMPTY, SETVAL, MAX_BELT); // P wolnych miejsc
     semctl(global_semid, SEM_FULL, SETVAL, 0);     // 0 talerzyków na start
-
+    semctl(global_semid, SEM_KITCHEN_FULL, SETVAL, 0);
 
     // kucharz
     pid_kucharz = fork();
@@ -133,15 +150,22 @@ int main() {
         << "] [Obsluga PID: " << pid_obsluga << "]" << std::endl;
 
     // petla klientow
-    for (int i = 0; i < 100; i++) { // test na 15 grup klientów
+    for (int i = 0; i < 100; i++) {
         if (!shm->isOpen) break;
+        int adults = (rand() % 2) + 1; // 1-2 doros³ych
+        int kids = rand() % 5;        // 0-4 dzieci
 
+        if (kids > adults * 3) {
+            std::cout << "[KIEROWNIK] Grupa odrzucona: za du¿o dzieci" << std::endl;
+            continue;
+        }
+        int total_size = adults + kids;
         pid_t client_pid = fork();
         if (client_pid == 0) {
-            int size = (rand() % 4) + 1; // grupy 1-4 osobowe
             char size_str[4];
-            sprintf(size_str, "%d", size);
+            sprintf(size_str, "%d", total_size);
             execl("./klient", "./klient", size_str, NULL);
+            perror("B³¹d execl");
             exit(0);
         }
 
@@ -151,7 +175,9 @@ int main() {
     // testy
     while (true) {
         sleep(8);
-        std::cout << "[KIEROWNIK] Stan kasy: " << shm->total_revenue << " PLN" << std::endl;
+        if (shm != nullptr) {
+            std::cout << "[KIEROWNIK] Stan kasy: " << shm->total_revenue << " PLN" << std::endl;
+        }
     }
 
     return 0;

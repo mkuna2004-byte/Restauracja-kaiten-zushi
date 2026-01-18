@@ -14,7 +14,7 @@ int main(int argc, char* argv[]) {
 
     key_t key = ftok("main_restaurant", 'R');
     int shmid = shmget(key, sizeof(SharedMemory), 0666);
-    int semid = semget(key, 3, 0666);
+    int semid = semget(key, 4, 0666);
 
     if (shmid == -1 || semid == -1) { perror("Klient shmget"); return 1; }
 
@@ -26,10 +26,24 @@ int main(int argc, char* argv[]) {
     sem_op(semid, SEM_MUTEX, -1);
     for (int i = 0; i < MAX_TABLES; i++) {
         // pusty lub taka sama grupa
-        bool can_sit = (shm->tables[i].occupied_seats == 0) ||
-            (shm->tables[i].group_size == group_size);
+        bool can_sit = false;
 
-        if (can_sit && (shm->tables[i].capacity - shm->tables[i].occupied_seats >= group_size)) {
+        if (group_size == 1) {
+            if (shm->tables[i].is_counter && shm->tables[i].occupied_seats < shm->tables[i].capacity) {
+                can_sit = true;
+            }
+        }
+        else if (group_size > 1 && !shm->tables[i].is_counter) {
+            // czy pusty lub z taka sama grupa
+            bool match_group = (shm->tables[i].occupied_seats == 0) || (shm->tables[i].group_size == group_size);
+            bool has_space = (shm->tables[i].capacity - shm->tables[i].occupied_seats >= group_size);
+
+            if (match_group && has_space) {
+                can_sit = true;
+            }
+        }
+
+        if (can_sit) {
             shm->tables[i].occupied_seats += group_size;
             shm->tables[i].group_size = group_size;
             my_table = i;
@@ -46,6 +60,20 @@ int main(int argc, char* argv[]) {
 
     std::cout << "[KLIENT " << getpid() << "] Usiedlismy ("<< group_size << ") przy stoliku nr " << my_table << std::endl;
 
+    if (rand() % 100 < 30) { // 30% szans na zamowienie specjalne
+        sem_op(semid, SEM_MUTEX, -1);
+        for (int k = 0; k < 5; k++) {
+            if (!shm->orders[k].is_active) {
+                shm->orders[k].table_id = my_table;
+                shm->orders[k].is_active = true;
+                shm->orders[k].type = 3;
+                std::cout << "[KLIENT " << getpid() << "] zamowienie specjalne!" << std::endl;
+                break;
+            }
+        }
+        sem_op(semid, SEM_MUTEX, 1);
+    }
+
     // jedzenie
     int to_eat = (rand() % 8) + 3;
     for (int i = 0; i < to_eat; i++) {
@@ -53,17 +81,18 @@ int main(int argc, char* argv[]) {
         sem_op(semid, SEM_MUTEX, -1);
 
         bool found = false;
-        for (int j = 0; j < MAX_BELT; j++) {
-            if (shm->belt[j].is_active) {
-                std::cout << "[KLIENT " << getpid() << "] Zdejmuje sushi z pozycji " << j << " (Cena: " << shm->belt[j].price << "zl)" << std::endl;
-                shm->sold_count[shm->belt[j].type]++;
-                shm->total_revenue += shm->belt[j].price;
-                
-                //std::cout << "[KLIENT " << getpid() << "] Zjadam danie za " << shm->belt[j].price << " PLN." << std::endl;
-
-                shm->belt[j].is_active = false;
-                found = true;
-                break;
+        int vision_range = 3;
+        for (int k = 0; k < vision_range; k++) {
+            int j = (my_table + k) % MAX_BELT;
+            if (shm->belt[k].is_active) {
+                if (shm->belt[k].target_id == -1 || shm->belt[k].target_id == my_table) {
+                    shm->sold_count[shm->belt[k].type]++;
+                    shm->total_revenue += shm->belt[k].price;
+                    shm->belt[k].is_active = false;
+                    found = true;
+                    std::cout << "[KLIENT " << getpid() << "] Zdejmuje sushi z pozycji " << k << " (Cena: " << shm->belt[k].price << "zl)" << std::endl;
+                    break;
+                }
             }
         }
 
@@ -74,6 +103,8 @@ int main(int argc, char* argv[]) {
         else {
             // jeœli nie znalezione, oddajemy full
             sem_op(semid, SEM_FULL, 1);
+            i--;
+            usleep(500000);
         }
 
         sleep(rand() % 2 + 1); // czas jedzenia
