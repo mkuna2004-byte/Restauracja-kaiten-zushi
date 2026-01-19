@@ -32,8 +32,8 @@ int main() {
 
     while (shm_ptr->isOpen) {
 
-        sem_op(semid, SEM_KITCHEN_FULL, -1);
         // czekaj na wolne miejsce na tasmie
+        sem_op(semid, SEM_KITCHEN_FULL, -1);
         sem_op(semid, SEM_EMPTY, -1);
         sem_op(semid, SEM_MUTEX, -1);
 
@@ -44,25 +44,58 @@ int main() {
             }
         }
 
-        Plate taken_plate = shm_ptr->kitchen_prep[--shm_ptr->plates_in_kitchen];
+        if (shm_ptr->plates_in_kitchen > 0) {
+            // Jeœli slot 0 jest wolny, k³adziemy
+            if (!shm_ptr->belt[0].is_active) {
+                Plate taken_plate = shm_ptr->kitchen_prep[--shm_ptr->plates_in_kitchen];
+                shm_ptr->belt[0] = taken_plate;
+                shm_ptr->belt[0].is_active = true;
+                // Skoro pobieramy, musimy "skonsumowaæ" semafor KITCHEN_FULL bez czekania
+                struct sembuf s_op = { SEM_KITCHEN_FULL, -1, IPC_NOWAIT };
+                semop(semid, &s_op, 1);
+                std::cout << "[OBSLUGA] Klade danie na slot 0" << std::endl;
 
-        static int current_pos = 0;
-        while (shm_ptr->belt[current_pos].is_active) {
-            current_pos = (current_pos + 1) % MAX_BELT;
+                // Powiadom klientów, ¿e przyby³o jedzenie
+                sem_op(semid, SEM_MUTEX, 1);
+                sem_op(semid, SEM_FULL, 1);
+            }
+
+
+
+            /*
+
+
+                    for (int i = MAX_BELT - 1; i > 0; i--) {
+                        if (!shm_ptr->belt[i].is_active && shm_ptr->belt[i - 1].is_active) {
+                            shm_ptr->belt[i] = shm_ptr->belt[i - 1];
+                            shm_ptr->belt[i - 1].is_active = false;
+                        }
+                    }
+
+                    Plate taken_plate = shm_ptr->kitchen_prep[--shm_ptr->plates_in_kitchen];
+
+                    int insert_pos = 0;
+                    while (insert_pos < MAX_BELT && shm_ptr->belt[insert_pos].is_active) {
+                        insert_pos++;
+                    }
+                    // znajdz pierwszy wolny slot na tasmie
+
+                    if (insert_pos < MAX_BELT) {
+                        shm_ptr->belt[insert_pos] = taken_plate;
+                        shm_ptr->belt[insert_pos].is_active = true;
+                        std::cout << "[OBSLUGA] Klade danie na tasmie (slot " << insert_pos << ")" << std::endl;
+                    }
+
+                    sem_op(semid, SEM_MUTEX, 1);
+                    sem_op(semid, SEM_FULL, 1); // powiadom klienta
+
+                    usleep(shm_ptr->chef_sleep_time); // czas wydawania dania
+                }
+                */
+            sem_op(semid, SEM_MUTEX, 1);
+            usleep(shm_ptr->chef_sleep_time);
         }
-        // znajdz pierwszy wolny slot na tasmie
-        shm_ptr->belt[current_pos] = taken_plate;
-        shm_ptr->belt[current_pos].is_active = true;
-        std::cout << "[OBSLUGA] Klade danie na tasmie (slot " << current_pos << ")" << std::endl;
-        
-        current_pos = (current_pos + 1) % MAX_BELT;
-
-        sem_op(semid, SEM_MUTEX, 1);
-        sem_op(semid, SEM_FULL, 1); // powiadom klienta
-
-        usleep(shm_ptr->chef_sleep_time); // czas wydawania dania
     }
-
     shmdt(shm_ptr);
     return 0;
 }

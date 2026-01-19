@@ -54,8 +54,8 @@ int main() {
             // na blat
             shm->kitchen_prep[shm->plates_in_kitchen++] = new_plate;
 
-            sem_op(semid, SEM_MUTEX, 1);
             sem_op(semid, SEM_KITCHEN_FULL, 1); // Powiadom obs³ugê
+            sem_op(semid, SEM_MUTEX, 1);
         }
         else {
             sem_op(semid, SEM_MUTEX, 1);

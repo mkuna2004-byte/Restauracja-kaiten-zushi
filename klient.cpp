@@ -57,8 +57,13 @@ int main(int argc, char* argv[]) {
         shmdt(shm);
         return 0;
     }
+    if (group_size == 1) {
+        std::cout << "[KLIENT " << getpid() << "] Siadam przy Ladzie (miejsce " << my_table << ")" << std::endl;
+    }
+    else {
+        std::cout << "[KLIENT " << getpid() << "] Usiedlismy (" << group_size << ") przy stoliku nr " << my_table << std::endl;
 
-    std::cout << "[KLIENT " << getpid() << "] Usiedlismy ("<< group_size << ") przy stoliku nr " << my_table << std::endl;
+    }
 
     if (rand() % 100 < 30) { // 30% szans na zamowienie specjalne
         sem_op(semid, SEM_MUTEX, -1);
@@ -81,33 +86,47 @@ int main(int argc, char* argv[]) {
         sem_op(semid, SEM_MUTEX, -1);
 
         bool found = false;
-        int vision_range = 3;
-        for (int k = 0; k < vision_range; k++) {
-            int j = (my_table + k) % MAX_BELT;
-            if (shm->belt[k].is_active) {
-                if (shm->belt[k].target_id == -1 || shm->belt[k].target_id == my_table) {
-                    shm->sold_count[shm->belt[k].type]++;
-                    shm->total_revenue += shm->belt[k].price;
-                    shm->belt[k].is_active = false;
+        int my_slot = my_table % MAX_BELT;
+        
+        for (int k = 0; k < 3; k++) {
+            int idx = (my_table + k) % MAX_BELT;
+            if (shm->belt[idx].is_active) {
+                if (shm->belt[idx].target_id == -1 || shm->belt[idx].target_id == my_table) {
+                    shm->belt[my_slot].is_active = false;
+                    int t = shm->belt[my_slot].type;
+                    shm->sold_count[t]++;
+                    shm->total_revenue += shm->belt[my_slot].price;
+                    
                     found = true;
-                    std::cout << "[KLIENT " << getpid() << "] Zdejmuje sushi z pozycji " << k << " (Cena: " << shm->belt[k].price << "zl)" << std::endl;
+                    std::cout << "[KLIENT " << getpid() << "] Zdejmuje sushi z pozycji " << my_slot << " (Cena: " << shm->belt[my_slot].price << "zl)" << std::endl;
                     break;
                 }
             }
         }
 
+    /*
+            if (shm->belt[my_slot].is_active) {
+                if (shm->belt[my_slot].target_id == -1 || shm->belt[my_slot].target_id == my_table) {
+                    shm->sold_count[shm->belt[my_slot].type]++;
+                    shm->total_revenue += shm->belt[my_slot].price;
+                    shm->belt[my_slot].is_active = false;
+                    found = true;
+                    std::cout << "[KLIENT " << getpid() << "] Zdejmuje sushi z pozycji " << my_slot << " (Cena: " << shm->belt[my_slot].price << "zl)" << std::endl;
+                    break;
+                }
+            }
+    */
         sem_op(semid, SEM_MUTEX, 1);
         if (found) {
             sem_op(semid, SEM_EMPTY, 1); // zwalnianie miejsca na tasmie
+            sleep(rand() % 2 + 1); // czas jedzenia
         }
         else {
             // jeœli nie znalezione, oddajemy full
             sem_op(semid, SEM_FULL, 1);
             i--;
-            usleep(500000);
+            sleep(1);
         }
-
-        sleep(rand() % 2 + 1); // czas jedzenia
     }
 
     // zwalnianie stolika

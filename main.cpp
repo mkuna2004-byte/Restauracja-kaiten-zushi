@@ -33,7 +33,7 @@ void cleanup(int sig) {
         //file << "Dania 15zl: Prod: " << shm->produced_count[1] << " Sprzed: " << shm->sold_count[1] << "\n";
         //file << "Dania 20zl: Prod: " << shm->produced_count[2] << " Sprzed: " << shm->sold_count[2] << "\n";
         for (int i = 0; i < 4; i++) {
-            file << "Typ " << i << " (3=Specjalne): Prod: " << shm->produced_count[i]
+            file << "Typ " << i << "  Prod: " << shm->produced_count[i]
                 << " Sprzed: " << shm->sold_count[i] << "\n";
         }
         file << "Dania pozostale na tasmie: " << (cooked_sum - sold_sum) << "\n";
@@ -152,16 +152,20 @@ int main() {
     // petla klientow
     for (int i = 0; i < 100; i++) {
         if (!shm->isOpen) break;
-        int adults = (rand() % 2) + 1; // 1-2 doros³ych
-        int kids = rand() % 5;        // 0-4 dzieci
+        
+        unsigned int seed = time(NULL) ^ (getpid() << i);
+        int adults = (rand_r(&seed) % 2) + 1; // 1-2 doros³ych
+        int kids = rand_r(&seed) % 5;        // 0-4 dzieci
 
         if (kids > adults * 3) {
-            std::cout << "[KIEROWNIK] Grupa odrzucona: za du¿o dzieci" << std::endl;
+            std::cout << "[KIEROWNIK] Grupa odrzucona: za duzo dzieci" << std::endl;
+            usleep(200000);
             continue;
         }
         int total_size = adults + kids;
         pid_t client_pid = fork();
         if (client_pid == 0) {
+            srand(time(NULL) ^ getpid());
             char size_str[4];
             sprintf(size_str, "%d", total_size);
             execl("./klient", "./klient", size_str, NULL);
