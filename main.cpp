@@ -2,8 +2,6 @@
 #include <fstream>
 #include "common.h"
 
-//ZSYNCHRONIZOWAC KUCHARZA Z OBSLUGA (nie zgadza sie liczba sprzedanych z ugotowanymi)!!!!
-
 int global_shmid = -1;
 int global_semid = -1;
 pid_t pid_kucharz = -1;
@@ -13,7 +11,7 @@ SharedMemory* shm = nullptr;
 void cleanup(int sig) {
     std::cout << "\n[KIEROWNIK] Zamykanie restauracji (Sygnal " << sig << ")." << std::endl;
     kill(0, SIGQUIT);
-
+    sleep(2);
     int cooked_sum = 0;
     int sold_sum = 0;
 
@@ -119,6 +117,7 @@ int main() {
             shm->tables[i].is_counter = false;
         }
     }
+    shm->active_clients = 0;
     shm->total_revenue = 0;
     shm->chef_sleep_time = 1000000; // 1 sekunda na start
     for (int i = 0; i < 4; i++) {
@@ -150,7 +149,7 @@ int main() {
         << "] [Obsluga PID: " << pid_obsluga << "]" << std::endl;
 
     // petla klientow
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 30; i++) {
         if (!shm->isOpen) break;
         
         unsigned int seed = time(NULL) ^ (getpid() << i);
@@ -159,7 +158,7 @@ int main() {
 
         if (kids > adults * 3) {
             std::cout << "[KIEROWNIK] Grupa odrzucona: za duzo dzieci" << std::endl;
-            usleep(200000);
+            sleep(1);
             continue;
         }
         int total_size = adults + kids;
@@ -175,14 +174,34 @@ int main() {
 
         sleep(rand() % 3 + 1); // nowi klienci co 1-3 sekundy
     }
+    
+    sleep(20);
+    shm->isOpen = false;
+    
+    kill(0, SIGTERM);
+    
+    while (true) {
+        sem_op(global_semid, SEM_MUTEX, -1);
+        int count = shm->active_clients;
+        sem_op(global_semid, SEM_MUTEX, 1);
+
+        if (count == 0) break; // Wszyscy wyszli!
+        std::cout << "[KIEROWNIK] Czekam na ostatnich " << count << " klientów..." << std::endl;
+        sleep(2);
+    }
+    //kill(pid_kucharz, SIGTERM);
+    //kill(pid_obsluga, SIGTERM);
+    while (wait(NULL) > 0);
+    cleanup(0);
 
     // testy
+    /*
     while (true) {
         sleep(8);
         if (shm != nullptr) {
             std::cout << "[KIEROWNIK] Stan kasy: " << shm->total_revenue << " PLN" << std::endl;
         }
     }
-
+    */
     return 0;
 }

@@ -1,12 +1,16 @@
 #include "common.h"
 
+SharedMemory* shm = nullptr;
+void handle_sigterm(int sig) {}
+
 int main() {
     std::cout << "[KUCHARZ] Startuje. Przygotowuje dania dla obslugi." << std::endl;
 
+    signal(SIGTERM, handle_sigterm);
     key_t key = ftok("main_restaurant", 'R');
     int shmid = shmget(key, sizeof(SharedMemory), 0666);
     int semid = semget(key, 4, 0666);
-    SharedMemory* shm = (SharedMemory*)shmat(shmid, NULL, 0);
+    shm = (SharedMemory*)shmat(shmid, NULL, 0);
 
     srand(time(NULL) ^ getpid());
 
@@ -23,7 +27,8 @@ int main() {
 
         if (shm->plates_in_kitchen < 10) {
             Plate new_plate;
-
+            new_plate.target_id = -1;
+            new_plate.is_active = true;
             // zam specjalne
             int order_idx = -1;
             for (int i = 0; i < 5; i++) {
@@ -54,8 +59,8 @@ int main() {
             // na blat
             shm->kitchen_prep[shm->plates_in_kitchen++] = new_plate;
 
-            sem_op(semid, SEM_KITCHEN_FULL, 1); // Powiadom obs³ugê
             sem_op(semid, SEM_MUTEX, 1);
+            sem_op(semid, SEM_KITCHEN_FULL, 1); // Powiadom obs³ugê
         }
         else {
             sem_op(semid, SEM_MUTEX, 1);

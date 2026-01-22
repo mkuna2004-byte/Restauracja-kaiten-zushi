@@ -55,6 +55,7 @@ struct SharedMemory {
     Table tables[MAX_TABLES];
     bool isOpen;
     int total_revenue;
+    int active_clients;
     // statystyki do raportu koncowego
     int produced_count[4]; // kucharz - indeksy dla cen 10, 15, 20, specjalne
     int sold_count[4];     // statystyki kasy
@@ -63,13 +64,21 @@ struct SharedMemory {
 };
 
 // Fun pomocnicza do operacji na semaforach
-inline void sem_op(int semid, int sem_num, int op) {
+inline void sem_op(int semid, int sem_num, int op, SharedMemory* shm_ptr = nullptr) {
     struct sembuf sops;
     sops.sem_num = sem_num;
     sops.sem_op = op;
     sops.sem_flg = 0;
-    if (semop(semid, &sops, 1) == -1) {
-        if (errno != EINTR) {
+    while (semop(semid, &sops, 1) == -1) {
+        if (errno == EINTR) {
+            if (shm_ptr != nullptr && !shm_ptr->isOpen) {
+                // odpiecie pamieci~!!!
+                exit(0);
+            }
+            // Jeœli to by³ sygna³ (np. zmiana tempa) pêtla while ponowi semop
+            continue;
+        }
+        else {
             perror("B³¹d semop");
             exit(1);
         }
