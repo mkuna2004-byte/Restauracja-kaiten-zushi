@@ -14,9 +14,13 @@
 #include <errno.h>
 #include <ctime>
 #include <cstdio>
+#include <thread>
 #include <cstdlib>
 #include <string>
 #include <cstring>
+#include <fstream>
+#include <fcntl.h>
+#include <termios.h>
 
 #define MAX_BELT 15   // pojemnosc tasmy
 #define MAX_TABLES 14
@@ -61,28 +65,27 @@ struct SharedMemory {
     int sold_count[4];     // statystyki kasy
     SpecialOrder orders[5];
     int chef_sleep_time;   // sterowanie sygna³ami
+    bool kucharzDone;
+    bool obslugaDone;
 };
 
-// Fun pomocnicza do operacji na semaforach
-inline void sem_op(int semid, int sem_num, int op, SharedMemory* shm_ptr = nullptr) {
+inline int sem_op(int semid, int sem_num, int op, SharedMemory* shm_ptr = nullptr) {
     struct sembuf sops;
     sops.sem_num = sem_num;
     sops.sem_op = op;
-    sops.sem_flg = 0;
-    while (semop(semid, &sops, 1) == -1) {
-        if (errno == EINTR) {
-            if (shm_ptr != nullptr && !shm_ptr->isOpen) {
-                // odpiecie pamieci~!!!
-                exit(0);
-            }
-            // Jeœli to by³ sygna³ (np. zmiana tempa) pêtla while ponowi semop
-            continue;
-        }
-        else {
-            perror("B³¹d semop");
-            exit(1);
-        }
-    }
-}
+    sops.sem_flg = SEM_UNDO;
 
+
+    if (semop(semid, &sops, 1) == -1) {
+        if (errno == EINTR) {
+            return -1;
+        }
+        if (errno == EINVAL || errno == EIDRM) {
+            return -1;
+        }
+        perror("B³¹d semop");
+        return -1;
+    }
+    return 0;
+}
 #endif

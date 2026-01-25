@@ -4,10 +4,13 @@ project ("KaitenZushi")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 1. G£ÓWNY PROGRAM (Kierownik)
+# G£ÓWNY PROGRAM (Kierownik)
 add_executable(main_restaurant main.cpp common.h)
 
-# 2. OSOBNE PROGRAMY (potrzebne do wywo³ania przez exec)
+# Szukamy biblioteki Threads w systemie
+find_package(Threads REQUIRED)
+
+# OSOBNE PROGRAMY (potrzebne do wywo³ania przez exec)
 add_executable(obsluga obsluga.cpp common.h)
 add_executable(klient klient.cpp common.h)
 add_executable(kucharz kucharz.cpp common.h)

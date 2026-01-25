@@ -6,7 +6,9 @@ void handle_sigterm(int sig) {}
 int main() {
     std::cout << "[KUCHARZ] Startuje. Przygotowuje dania dla obslugi." << std::endl;
 
-    signal(SIGTERM, handle_sigterm);
+    //signal(SIGTERM, [](int) {}); 
+    signal(SIGINT, [](int) {}); // wybudza z semop
+    signal(SIGALRM, SIG_IGN);
     key_t key = ftok("main_restaurant", 'R');
     int shmid = shmget(key, sizeof(SharedMemory), 0666);
     int semid = semget(key, 4, 0666);
@@ -15,11 +17,17 @@ int main() {
     srand(time(NULL) ^ getpid());
 
     int prices[] = { 10, 15, 20, 40, 50, 60 };
+    
 
-    while (shm->isOpen) {
+    while (shm->isOpen || shm->active_clients > 0) {
         // kucharz przygotowuje danie (1-3 sekundy)
         usleep(shm->chef_sleep_time);
-        sem_op(semid, SEM_MUTEX, -1);
+        if (sem_op(semid, SEM_MUTEX, -1) == -1) break;
+
+        if (!shm->isOpen) {
+            sem_op(semid, SEM_MUTEX, 1);
+            break;
+        }
 
         int active_orders = 0;
         for (int i = 0; i < 5; i++) if (shm->orders[i].is_active) active_orders++;
@@ -48,10 +56,16 @@ int main() {
             }
             else {
                 // Gotujemy zwyk³e sushi
+                if (shm->plates_in_kitchen > 6) {
+                    sem_op(semid, SEM_MUTEX, 1);
+                    std::cout << "[KUCHARZ] Duzo jedzenia na blacie (" << shm->plates_in_kitchen << "). Czekam na zamowienia..." << std::endl;
+                    sleep(2);
+                    continue;
+                }
                 new_plate.type = rand() % 3;
                 new_plate.price = prices[new_plate.type];
                 new_plate.target_id = -1;
-                std::cout << "[KUCHARZ] Gotuje sushi typ " << new_plate.type << std::endl;
+                //std::cout << "[KUCHARZ] Gotuje sushi typ " << new_plate.type << std::endl;
             }
             shm->produced_count[new_plate.type]++;
             new_plate.is_active = true;
@@ -64,11 +78,23 @@ int main() {
         }
         else {
             sem_op(semid, SEM_MUTEX, 1);
-            std::cout << "[KUCHARZ] Blat pe³ny, czekam..." << std::endl;
+            std::cout << "[KUCHARZ] Blat pelny, czekam..." << std::endl;
             sleep(1);
         }
     }
 
+    int sum = 0;
+
+    std::cout << "\n[KUCHARZ] PODSUMOWANIE PRODUKCJI:" << std::endl;
+    for (int i = 0; i < 4; i++) {
+        int kwota = shm->produced_count[i] * prices[i];
+        sum += kwota;
+        std::cout << "Rodzaj " << i << " - " << shm->produced_count[i]
+            << " szt. - " << kwota << " zl" << std::endl;
+    }
+    std::cout << "[KUCHARZ] Laczna kwota wytworzonych dan: " << sum << " zl" << std::endl;
+    shm->kucharzDone = true;
+    
     shmdt(shm);
     return 0;
 }
