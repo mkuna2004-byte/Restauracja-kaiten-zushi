@@ -6,6 +6,27 @@ int group_size = 0;
 int semid = -1;
 
 void handle_exit(int sig) {
+    if (shm != nullptr && semid != -1) {
+
+        struct sembuf s_lock = { SEM_MUTEX, -1, IPC_NOWAIT };
+        if (semop(semid, &s_lock, 1) != -1) {
+
+            if (my_table != -1) {
+                shm->tables[my_table].occupied_seats -= group_size;
+                if (shm->tables[my_table].occupied_seats < 0) shm->tables[my_table].occupied_seats = 0;
+
+                if (shm->tables[my_table].occupied_seats == 0) {
+                    shm->tables[my_table].group_size = 0;
+                }
+            }
+            if (shm->active_clients > 0) {
+                shm->active_clients--;
+            }
+
+            struct sembuf s_unlock = { SEM_MUTEX, 1, 0 };
+            semop(semid, &s_unlock, 1);
+        }
+    }
     std::cout << "[KLIENT " << getpid() << "] wychodzi" << std::endl;
     if (shm != nullptr) shmdt(shm);
     exit(0);
@@ -37,9 +58,9 @@ int main(int argc, char* argv[]) {
     
     // sekcja szukanie stolika
     std::cout << "[KLIENT " << getpid() << "] Czeka na przydzielenie stolika dla grupy " << group_size << "..." << std::endl;
-
-    sem_op(semid, SEM_MUTEX, -1);
     usleep(200000);
+    sem_op(semid, SEM_MUTEX, -1);
+    
 
     for (int i = 0; i < MAX_TABLES; i++) {
         
@@ -93,15 +114,21 @@ int main(int argc, char* argv[]) {
         }
     }
     sem_op(semid, SEM_MUTEX, 1);
+
     bool ordered_special = false;
-    if (rand() % 100 < 30) { // 30% szans na zamowienie specjalne
+    sem_op(semid, SEM_MUTEX, -1);
+    bool is_shared = (shm->tables[my_table].occupied_seats > group_size);
+    sem_op(semid, SEM_MUTEX, 1);
+
+    if (!is_shared && rand() % 100 < 30) { // 30% szans na zamowienie specjalne
         sem_op(semid, SEM_MUTEX, -1);
         for (int k = 0; k < 5; k++) {
             if (!shm->orders[k].is_active) {
                 shm->orders[k].table_id = my_table;
                 shm->orders[k].is_active = true;
-                ordered_special = true;
                 shm->orders[k].type = 3;
+                ordered_special = true;
+
                 std::cout << "[KLIENT " << getpid() << "] zamowienie specjalne!" << std::endl;
                 break;
             }
@@ -113,10 +140,11 @@ int main(int argc, char* argv[]) {
     int eaten[4] = { 0, 0, 0, 0 };
     int eaten_special = 0;
     int to_eat = (rand() % 8) + 3;
-    for (int i = 0; i < to_eat; i++) {
+    int eaten_count = 0;
+
+    while (eaten_count < to_eat || ordered_special) {
         if (!shm->isOpen) break;
 
-        //sem_op(semid, SEM_FULL, -1, shm); // czekaj na talerzyk na tasmie
         sem_op(semid, SEM_MUTEX, -1);
 
         bool found = false;
@@ -125,49 +153,53 @@ int main(int argc, char* argv[]) {
         for (int k = 0; k < 3; k++) {
             int idx = (my_slot + k) % MAX_BELT;
             if (shm->belt[idx].is_active && shm->belt[idx].price > 0) {
+               
+                int typ = shm->belt[idx].type;
+
                 if (shm->belt[idx].type == 3 && shm->belt[idx].target_id != my_table) {
                     continue;
                 }
-                
-                if (shm->belt[idx].target_id == -1 || (shm->belt[idx].target_id == my_table && ordered_special)) {
-                    
-                    int typ = shm->belt[idx].type;
 
-                    if (typ >= 0 && typ <= 3) {
-                        eaten[typ]++;
-                        if (typ == 3) eaten_special += shm->belt[idx].price;
-                    }
-                    
-                    shm->sold_count[shm->belt[idx].type]++;
-                    std::cout << "[KLIENT " << getpid() << "] Zdejmuje sushi z pozycji " << idx << " (Cena: " << shm->belt[idx].price << "zl)" << std::endl;
-                    
-                    shm->belt[idx].is_active = false;
-                    shm->belt[idx].type = 0;      // Reset typu na slocie
-                    shm->belt[idx].target_id = -1;
-                    shm->belt[idx].price = 0;
-
-                    sem_op(semid, SEM_EMPTY, 1); // zwalnianie miejsca na tasmie
-
-                    // jeœli nie znalezione, oddajemy full
-                    struct sembuf s_eat = { SEM_FULL, -1, IPC_NOWAIT };
-                    semop(semid, &s_eat, 1);
-
-                    found = true;
-                    if (typ == 3) {
-                        ordered_special = false;
-                    }
-                    break;
+                if (typ == 3 && !ordered_special) {
+                    continue;
                 }
+
+                if (ordered_special && typ != 3) {
+                    continue;
+                }
+                
+                eaten[typ]++;
+                shm->sold_count[typ]++;
+                if (typ == 3) {
+                    eaten_special += shm->belt[idx].price;
+                    ordered_special = false;
+                }
+
+                std::cout << "[KLIENT " << getpid() << "] Zdejmuje sushi z pozycji " << idx << " (Cena: " << shm->belt[idx].price << "zl)" << std::endl;
+                    
+                shm->belt[idx].is_active = false;
+                shm->belt[idx].type = 0;      // reset typu na slocie
+                shm->belt[idx].target_id = -1;
+                shm->belt[idx].price = 0;
+
+                struct sembuf s_empty = { SEM_EMPTY, 1, IPC_NOWAIT };
+                semop(semid, &s_empty, 1);
+
+                // jeœli nie znalezione, oddajemy full
+                struct sembuf s_eat = { SEM_FULL, -1, IPC_NOWAIT };
+                semop(semid, &s_eat, 1);
+
+                found = true;
+                eaten_count++;
+                break;
             }
         }
         sem_op(semid, SEM_MUTEX, 1);
 
         if (found) {
-            
-            sleep(rand() % 2 + 1); // czas jedzenia
+            sleep(rand() % 2 + 3); // czas jedzenia
         }
         else {
-            i--;
             usleep(200000);
         }
     }
@@ -191,7 +223,6 @@ int main(int argc, char* argv[]) {
         std::cout << "Typ 3 (specjalne): " << eaten[3] << " szt. (Suma cen: " << eaten_special << " zl)" << std::endl;
     }
 
-    sem_op(semid, SEM_MUTEX, -1);
     std::cout << "[KASA] Grupa " << getpid() << " placi lacznie: " << client_sum << " zl." << std::endl;
     shm->total_revenue += client_sum;
 

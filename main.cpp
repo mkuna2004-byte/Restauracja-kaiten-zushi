@@ -211,7 +211,7 @@ int main() {
     }
 
     time_t start_time = time(NULL);
-    int czas_otwarcia = 60;
+    int czas_otwarcia = 40;
     int counter = 0;
 
     std::cout << "Restauracja otwarta! [Kucharz PID: " << pid_kucharz
@@ -231,7 +231,7 @@ int main() {
         }
 
         // petla klientow
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 40; i++) {
             if (!shm->isOpen) break;
 
             int is_vip = (rand() % 100 < 2) ? 1 : 0; // 2% szans na VIPa
@@ -242,7 +242,7 @@ int main() {
 
             if (is_vip == 0 && current >= 15) {
                 sleep(1);
-                continue; // mniejsza liczba klientow gdy sala jest pe³na
+                continue;
             }
 
             if (is_vip) {
@@ -278,10 +278,20 @@ int main() {
             sleep(rand() % 3 + 1); // nowi klienci co 1-3 sekundy
         }
     }
-
+    int log_frequency = 0;
     std::cout << "[KIEROWNIK] Koniec pracy restauracji, nowych klientow nie wpuszczamy" << std::endl;
     while (true) {
         sem_op(global_semid, SEM_MUTEX, -1);
+        int occ = 0;
+        std::string zajete_id = "";
+
+        for (int i = 0; i < MAX_TABLES; i++) {
+            if (shm->tables[i].occupied_seats > 0) {
+                occ++;
+                zajete_id += std::to_string(i) + " ";
+            }
+        }
+
         int pozostalo = shm->active_clients;
         sem_op(global_semid, SEM_MUTEX, 1);
 
@@ -289,13 +299,17 @@ int main() {
             break;
         }
 
-        std::cout << "[KIEROWNIK] Czekam az " << pozostalo << " grup dokonczy posilek..." << std::endl;
-        sleep(5);
+        if (log_frequency % 12 == 0) {
+            std::cout << "[KIEROWNIK] Czekam az " << pozostalo << " grup dokonczy posilek..." << std::endl;
+        }
+        log_frequency++;
+        
+        sleep(1);
 
         while (waitpid(-1, NULL, WNOHANG) > 0);
     }
 
-    std::cout << "[KIEROWNIK] Wszyscy klienci obs³uzeni. Zamykam kuchnie." << std::endl;
+    std::cout << "[KIEROWNIK] Wszyscy klienci obsluzeni. Zamykam kuchnie." << std::endl;
     shm->isOpen = false;
 
     cleanup(0);

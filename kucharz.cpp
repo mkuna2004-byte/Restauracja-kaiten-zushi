@@ -5,8 +5,7 @@ void handle_sigterm(int sig) {}
 
 int main() {
     std::cout << "[KUCHARZ] Startuje. Przygotowuje dania dla obslugi." << std::endl;
-
-    //signal(SIGTERM, [](int) {}); 
+ 
     signal(SIGINT, [](int) {}); // wybudza z semop
     signal(SIGALRM, SIG_IGN);
     key_t key = ftok("main_restaurant", 'R');
@@ -56,16 +55,19 @@ int main() {
             }
             else {
                 // Gotujemy zwyk³e sushi
-                if (shm->plates_in_kitchen > 6) {
+                int dynamic_limit = shm->active_clients + 2;
+                if (shm->active_clients <= 3) dynamic_limit = 1;
+                if (dynamic_limit > 10) dynamic_limit = 10;
+
+                if (shm->plates_in_kitchen >= dynamic_limit) {
                     sem_op(semid, SEM_MUTEX, 1);
                     std::cout << "[KUCHARZ] Duzo jedzenia na blacie (" << shm->plates_in_kitchen << "). Czekam na zamowienia..." << std::endl;
-                    sleep(2);
+                    sleep(1);
                     continue;
                 }
                 new_plate.type = rand() % 3;
                 new_plate.price = prices[new_plate.type];
                 new_plate.target_id = -1;
-                //std::cout << "[KUCHARZ] Gotuje sushi typ " << new_plate.type << std::endl;
             }
             shm->produced_count[new_plate.type]++;
             new_plate.is_active = true;
@@ -84,7 +86,7 @@ int main() {
     }
 
     int sum = 0;
-
+    sleep(2);
     std::cout << "\n[KUCHARZ] PODSUMOWANIE PRODUKCJI:" << std::endl;
     for (int i = 0; i < 4; i++) {
         int kwota = shm->produced_count[i] * prices[i];

@@ -18,15 +18,9 @@ void handle_speed(int sig) {
         std::cout << "[OBSLUGA] Zwalniamy, nowe tempo: " << shm_ptr->chef_sleep_time / 1000 << "ms" << std::endl;
     }
 }
-/*
-void handle_exit(int sig) {
-    if (shm_ptr) shmdt(shm_ptr);
-    exit(0);
-}
-*/
+
 int main() {
 
-    //signal(SIGTERM, [](int) {}); 
     signal(SIGINT, [](int) {}); // wybudza z semop
     signal(SIGUSR1, handle_speed); // klawisz 1
     signal(SIGUSR2, handle_speed); // klawisz 2
@@ -41,8 +35,8 @@ int main() {
 
     shm_ptr = (SharedMemory*)shmat(shmid, NULL, 0);
 
-    signal(SIGUSR1, handle_speed);
-    signal(SIGUSR2, handle_speed);
+    Plate recycled_plate;
+    bool has_recycled_item = false;
 
     while (shm_ptr->isOpen || shm_ptr->active_clients > 0) {
 
@@ -56,55 +50,62 @@ int main() {
         }
 
         int last_idx = MAX_BELT - 1;
+        has_recycled_item = false;
         if (shm_ptr->belt[last_idx].is_active) {
-            // danie do kosza
-            struct sembuf s_waste = { SEM_FULL, -1, IPC_NOWAIT };
-            semop(semid, &s_waste, 1);
 
+            if (shm_ptr->belt[last_idx].type == 3) {
+                recycled_plate = shm_ptr->belt[last_idx];
+                has_recycled_item = true;
+            }
+            else {
+                // danie do kosza
+                struct sembuf s_waste = { SEM_FULL, -1, IPC_NOWAIT };
+                semop(semid, &s_waste, 1);
+
+                struct sembuf s_empty = { SEM_EMPTY, 1, IPC_NOWAIT };
+                semop(semid, &s_empty, 1);
+
+                
+            }
             shm_ptr->belt[last_idx].is_active = false;
             shm_ptr->belt[last_idx].price = 0;
-            std::cout << "[OBSLUGA] Danie spadlo z tasmy (zrobiono miejsce)." << std::endl;
+            shm_ptr->belt[last_idx].type = 0;
+            shm_ptr->belt[last_idx].target_id = -1;
+            std::cout << "[OBSLUGA] Danie spadlo z tasmy." << std::endl;
         }
+            
 
         for (int i = MAX_BELT - 1; i > 0; i--) {
-            if (!shm_ptr->belt[i].is_active && shm_ptr->belt[i - 1].is_active) {
-                shm_ptr->belt[i] = shm_ptr->belt[i - 1];
-            }
+            shm_ptr->belt[i] = shm_ptr->belt[i - 1];
         }
-            /*
-            shm_ptr->belt[i - 1].is_active = false;
-            shm_ptr->belt[i - 1].price = 0;
-            shm_ptr->belt[i - 1].type = 0;
-            shm_ptr->belt[i - 1].target_id = -1;
-            */
+
         shm_ptr->belt[0].is_active = false;
         shm_ptr->belt[0].price = 0;
         shm_ptr->belt[0].type = 0;
         shm_ptr->belt[0].target_id = -1;
-        
-       
 
-        if (shm_ptr->plates_in_kitchen > 0) {
+        if (has_recycled_item) {
+            shm_ptr->belt[0] = recycled_plate;
+            shm_ptr->belt[0].is_active = true;
+        }
+        else if (shm_ptr->plates_in_kitchen > 0) {
 
-            // Próba zdjêcia 1 sztuki z licznika "KITCHEN_FULL" (bez blokowania)
-            struct sembuf s_take = { SEM_KITCHEN_FULL, -1, IPC_NOWAIT };
+                struct sembuf s_take = { SEM_KITCHEN_FULL, -1, IPC_NOWAIT };
 
-            if (semop(semid, &s_take, 1) != -1) {
-                // Jeœli siê uda³o (by³o danie), to k³adziemy na taœmê
-                Plate taken_plate = shm_ptr->kitchen_prep[--shm_ptr->plates_in_kitchen];
+                if (semop(semid, &s_take, 1) != -1) {
+                    Plate taken_plate = shm_ptr->kitchen_prep[--shm_ptr->plates_in_kitchen];
+                    shm_ptr->belt[0] = taken_plate;
+                    shm_ptr->belt[0].is_active = true;
 
-                shm_ptr->belt[0] = taken_plate;
-                shm_ptr->belt[0].is_active = true;
+                    struct sembuf s_op_empty = { SEM_EMPTY, -1, IPC_NOWAIT };
+                    semop(semid, &s_op_empty, 1);
 
-                // Aktualizujemy semafory taœmy
-                struct sembuf s_op_empty = { SEM_EMPTY, -1, IPC_NOWAIT }; // Mniej pustego miejsca
-                semop(semid, &s_op_empty, 1);
+                    struct sembuf s_op_full = { SEM_FULL, 1, IPC_NOWAIT };
+                    semop(semid, &s_op_full, 1);
 
-                struct sembuf s_op_full = { SEM_FULL, 1, IPC_NOWAIT };   // Wiêcej jedzenia
-                semop(semid, &s_op_full, 1);
-
-                std::cout << "[OBSLUGA] Klade danie na slot 0" << std::endl;
-            }
+                    std::cout << "[OBSLUGA] Klade danie na slot 0" << std::endl;
+                }
+            
         }
         sem_op(semid, SEM_MUTEX, 1);
     }
